@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pegasus Real Detector - Echte bpftrace Überwachung ohne Simulation
+Pegasus Real Detector - Korrigierte Version mit voller 180s Überwachung
 """
 
 import os
@@ -23,20 +23,43 @@ def check_root():
 def check_bpftrace():
     return subprocess.run(["which", "bpftrace"], capture_output=True).returncode == 0
 
-def run_bpftrace_command(script, duration=10):
-    """Führt bpftrace direkt aus"""
+def run_bpftrace_long(script, duration=180):
+    """Führt bpftrace für die volle Dauer aus"""
+    script_file = f"{TEMP_DIR}/pegasus_scan.bt"
+    
     try:
-        cmd = f"timeout {duration} bpftrace -e '{script}'"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=duration + 5)
-        return result.stdout, result.stderr
+        with open(script_file, 'w') as f:
+            f.write(script)
+        
+        # Starte bpftrace im Hintergrund
+        cmd = f"bpftrace {script_file}"
+        process = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        
+        # Warte für die volle Dauer
+        time.sleep(duration)
+        
+        # Beende bpftrace
+        process.terminate()
+        try:
+            stdout, stderr = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate()
+        
+        return stdout, stderr
+        
     except Exception as e:
         return "", str(e)
+    finally:
+        if os.path.exists(script_file):
+            os.remove(script_file)
 
 def monitor_network_real():
-    """Echte Netzwerküberwachung"""
-    print("🌐 Echte Netzwerküberwachung gestartet...")
+    """Echte Netzwerküberwachung für volle Dauer"""
+    print("🌐 Echte Netzwerküberwachung gestartet (180s)...")
     
     network_script = '''
+BEGIN { printf("Network monitoring started\\n"); }
 tracepoint:syscalls:sys_enter_connect
 {
     $sockaddr = (struct sockaddr *)arg1;
@@ -52,45 +75,53 @@ tracepoint:syscalls:sys_enter_connect
         }
     }
 }
+END { printf("Network monitoring completed\\n"); }
 '''
     
-    output, error = run_bpftrace_command(network_script, SCAN_DURATION)
+    output, error = run_bpftrace_long(network_script, SCAN_DURATION)
+    print("🌐 Netzwerküberwachung abgeschlossen")
     return parse_network_output(output)
 
 def monitor_sensors_real():
-    """Echte Sensorüberwachung"""
-    print("📡 Echte Sensorüberwachung gestartet...")
+    """Echte Sensorüberwachung für volle Dauer"""
+    print("📡 Echte Sensorüberwachung gestartet (180s)...")
     
     sensor_script = '''
+BEGIN { printf("Sensor monitoring started\\n"); }
 tracepoint:syscalls:sys_enter_openat,
-tracepoint:syscalls:sys_enter_open,
-tracepoint:syscalls:sys_enter_ioctl
+tracepoint:syscalls:sys_enter_open
 {
     $filename = args->filename;
     
-    // Nur bei open/openat calls den Dateinamen prüfen
-    if (args->dfd == -100 && $filename != 0) {
+    if ($filename != 0) {
         $fname = str($filename);
         
-        if (str($fname).contains("video") || str($fname).contains("camera")) {
+        if (str($fname).contains("video") || str($fname).contains("camera") || 
+            str($fname).contains("/dev/video")) {
             printf("SENSOR|%d|%s|camera|%s\\n", pid, comm, $fname);
         }
-        if (str($fname).contains("snd") || str($fname).contains("audio") || str($fname).contains("pcm")) {
+        if (str($fname).contains("snd") || str($fname).contains("audio") || 
+            str($fname).contains("pcm") || str($fname).contains("/dev/snd")) {
             printf("SENSOR|%d|%s|microphone|%s\\n", pid, comm, $fname);
         }
-        if (str($fname).contains("fb") || str($fname).contains("graphics") || str($fname).contains("screen")) {
+        if (str($fname).contains("fb") || str($fname).contains("graphics") || 
+            str($fname).contains("screen") || str($fname).contains("/dev/fb")) {
             printf("SENSOR|%d|%s|screen|%s\\n", pid, comm, $fname);
         }
     }
-    
-    // IOCTL calls für Framebuffer
+}
+tracepoint:syscalls:sys_enter_ioctl
+{
+    // Framebuffer IOCTLs
     if (args->cmd == 0x4600 || args->cmd == 0x4601 || args->cmd == 0x4602) {
         printf("SENSOR|%d|%s|screen|ioctl\\n", pid, comm);
     }
 }
+END { printf("Sensor monitoring completed\\n"); }
 '''
     
-    output, error = run_bpftrace_command(sensor_script, SCAN_DURATION)
+    output, error = run_bpftrace_long(sensor_script, SCAN_DURATION)
+    print("📡 Sensorüberwachung abgeschlossen")
     return parse_sensor_output(output)
 
 def parse_network_output(output):
@@ -112,6 +143,7 @@ def parse_network_output(output):
                     })
                 except (ValueError, IndexError):
                     continue
+    print(f"🌐 Gefundene Netzwerk-Events: {len(events)}")
     return events
 
 def parse_sensor_output(output):
@@ -133,13 +165,14 @@ def parse_sensor_output(output):
                     })
                 except (ValueError, IndexError):
                     continue
+    print(f"📡 Gefundene Sensor-Events: {len(events)}")
     return events
 
 def get_process_info(pid):
     """Echte Prozessinformationen holen"""
     try:
         cmd = f"ps -p {pid} -o comm= 2>/dev/null || echo 'unknown'"
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
         process_name = result.stdout.strip()
         return process_name if process_name else f"pid_{pid}"
     except:
@@ -148,6 +181,10 @@ def get_process_info(pid):
 def correlate_real_events(network_events, sensor_events):
     """Korreliert echte Events"""
     results = []
+    
+    print("🔗 Korreliere Ereignisse...")
+    print(f"   Netzwerk-Events: {len(network_events)}")
+    print(f"   Sensor-Events: {len(sensor_events)}")
     
     # Verwende echte Prozessinformationen
     process_map = defaultdict(lambda: {'network': [], 'sensors': set(), 'process_name': ''})
@@ -192,6 +229,7 @@ def correlate_real_events(network_events, sensor_events):
                     'real_data': True
                 })
     
+    print(f"🔗 Gefundene Korrelationen: {len(results)}")
     return sorted(results, key=lambda x: x['probability'], reverse=True)
 
 def calculate_real_probability(sensors, network_events):
@@ -201,18 +239,18 @@ def calculate_real_probability(sensors, network_events):
     # Sensor-Kombinationen
     sensors_list = list(sensors)
     if 'microphone' in sensors_list and 'camera' in sensors_list:
-        prob += 0.7  # Höheres Gewicht für echte Daten
+        prob += 0.7
     elif 'microphone' in sensors_list and 'screen' in sensors_list:
         prob += 0.6
     elif len(sensors_list) >= 2:
         prob += 0.5
     elif len(sensors_list) == 1:
-        prob += 0.2  # Niedriger für einzelne Sensoren
+        prob += 0.2
     
     # Netzwerkaktivität
     rat_ports = {4444, 5555, 6006, 8443, 5223, 5228, 5242, 5243, 8000, 8001, 50050, 9999}
     network_score = sum(1 for ev in network_events if ev['port'] in rat_ports)
-    prob += min(network_score * 0.3, 0.6)  # Höheres Gewicht
+    prob += min(network_score * 0.3, 0.6)
     
     return min(prob, 1.0)
 
@@ -259,11 +297,6 @@ def display_real_results(report):
             print(f"{detection['process'][:18]:<20} {detection['pid']:<6} "
                   f"{detection['ip']:<18} {sensors[:23]:<25} "
                   f"{risk_icon} {prob:>5.1f}% {'':<3} {risk_text}")
-            
-            # Zeige Details für high-risk
-            if prob > 60:
-                print(f"   🔴 Ports: {detection['ports']}")
-                print(f"   🔴 Netzwerk Events: {detection['network_count']}")
     else:
         print("\n✅ Keine verdächtigen Aktivitäten erkannt")
         print("   Das System scheint sicher zu sein")
@@ -273,8 +306,8 @@ def display_real_results(report):
 def main():
     """Hauptfunktion"""
     print("🦠 Pegasus Real Detector - Echte Überwachung")
-    print("🔍 bpftrace-basiert - Keine Simulation!")
-    print(f"⏰ Scan-Dauer: {SCAN_DURATION} Sekunden")
+    print("🔍 bpftrace-basiert - 180 Sekunden Scan")
+    print("⏰ Bitte warten...")
     
     if not check_root():
         print("❌ Root Zugriff erforderlich!")
@@ -289,34 +322,14 @@ def main():
     
     start_time = time.time()
     
-    # Starte echte Überwachung
+    # Starte sequentielle Überwachung (kein Threading)
     print("\n🚀 Starte echte Systemüberwachung...")
     
-    # Parallele Ausführung für Netzwerk und Sensoren
-    import threading
-    
-    network_events = []
-    sensor_events = []
-    
-    def run_network():
-        nonlocal network_events
-        network_events = monitor_network_real()
-    
-    def run_sensors():
-        nonlocal sensor_events
-        sensor_events = monitor_sensors_real()
-    
-    t1 = threading.Thread(target=run_network)
-    t2 = threading.Thread(target=run_sensors)
-    
-    t1.start()
-    t2.start()
-    
-    t1.join()
-    t2.join()
+    # Zuerst Netzwerk, dann Sensoren (sequentiell für Stabilität)
+    network_events = monitor_network_real()
+    sensor_events = monitor_sensors_real()
     
     # Korrelation
-    print("🔗 Korreliere Ereignisse...")
     results = correlate_real_events(network_events, sensor_events)
     
     # Report

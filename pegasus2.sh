@@ -1,39 +1,46 @@
 #!/bin/bash
-# Pegasus Real Detector - Echte Überwachung
+# Pegasus Real Detector - Korrigierte Version
 
 echo ""
 echo "╔══════════════════════════════════════════════════════════════╗"
 echo "║                PEGASUS REAL DETECTOR                        ║"
-echo "║               Echte Systemüberwachung                       ║"
+echo "║               Echte 180-Sekunden Überwachung                ║"
 echo "╚══════════════════════════════════════════════════════════════╝"
 echo ""
 
 # Prüfe Root
-if [ "$EUID" -ne 0 ]; then
+# Prüfe Root
+if [ $(id -u) -ne 0 ]; then
     echo "❌ Root access required!"
     echo "⚠️  Please run with sudo: sudo $0"
     exit 1
 fi
-
 # Prüfe bpftrace
 if ! command -v bpftrace >/dev/null 2>&1; then
     echo "❌ bpftrace not found!"
     echo "📦 Installing bpftrace..."
     sudo apt update && sudo apt install -y bpftrace
+    if ! command -v bpftrace >/dev/null 2>&1; then
+        echo "❌ Failed to install bpftrace"
+        exit 1
+    fi
 fi
 
 # Prüfe ob Script existiert
 SCRIPT="pegasus.py"
 if [ ! -f "$SCRIPT" ]; then
     echo "❌ Script not found: $SCRIPT"
+    echo "📥 Please download the real detector script"
     exit 1
 fi
 
 # Starte echte Überwachung
-echo "🔍 Starting REAL Pegasus Detector (3 minutes)..."
+echo "🔍 Starting REAL Pegasus Detector (180 seconds)..."
 echo "📡 Monitoring live system activity..."
+echo "⏰ This will take 3 minutes, please wait..."
 echo ""
 
+# Führe Python Script aus
 python3 "$SCRIPT"
 
 # Zeige Ergebnisse
@@ -52,15 +59,7 @@ if [ -f "/tmp/pegasus_real_analysis.json" ]; then
         if [ "$detections" -gt 0 ]; then
             echo ""
             echo "🔝 LIVE DETECTIONS:"
-            jq -r '.detections[0] | "   Process: \(.process)\n   PID: \(.pid)\n   IP: \(.ip)\n   Sensors: \(.sensors)\n   Probability: \(.probability)%\n   Risk: \(.risk)"' /tmp/pegasus_real_analysis.json
+            jq -r '.detections[0] | "   Process: \(.process)\n   PID: \(.pid)\n   IP: \(.ip)\n   Sensors: \(.sensors)\n   Probability: \(.probability)%\n   Risk: \(.risk)"' /tmp/pegasus
         fi
-    else
-        echo "   Real results saved in /tmp/pegasus_real_analysis.json"
-        echo "   Install jq for better output: sudo apt install jq"
     fi
-else
-    echo "   No results found - system may be clean"
 fi
-
-echo ""
-echo "✅ Real scan completed"
