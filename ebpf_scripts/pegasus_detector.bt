@@ -1,0 +1,48 @@
+#!/system/bin/sh
+# Pegasus Detection eBPF Script
+
+BEGIN {
+    printf("🦠 Pegasus Detector Started\\n");
+    printf("Monitoring for Pegasus spyware patterns...\\n");
+}
+
+tracepoint:syscalls:sys_enter_connect
+{
+    $dport = (args->dport >> 8) | ((args->dport & 0xFF) << 8);
+    
+    // Pegasus bekannte Ports
+    if ($dport == 4444 || $dport == 5555 || $dport == 6006 || $dport == 8443 || 
+        $dport == 5223 || $dport == 5228 || $dport == 5242 || $dport == 5243) {
+        printf("🚨 SUSPICIOUS_CONNECTION| PID:%d %s -> Port:%d [Pegasus Port]\\n", 
+               pid, comm, $dport);
+    }
+}
+
+tracepoint:syscalls:sys_enter_openat,
+tracepoint:syscalls:sys_enter_open
+{
+    $filename = str(args->filename);
+    
+    // Kritische Systemdateien
+    if (str($filename) == "/system/bin/su" || 
+        str($filename) == "/system/xbin/su" ||
+        str($filename) == "/system/bin/magisk" ||
+        str($filename) == "/data/local/tmp" ||
+        str($filename) == "/dev/kmsg") {
+        printf("🔍 CRITICAL_ACCESS| PID:%d %s -> FILE:%s\\n", 
+               pid, comm, $filename);
+    }
+    
+    // Sensor Zugriffe
+    if (str($filename) ~= "camera" || 
+        str($filename) ~= "microphone" ||
+        str($filename) ~= "/dev/video" ||
+        str($filename) ~= "audio") {
+        printf("📡 SENSOR_ACCESS| PID:%d %s -> DEVICE:%s\\n", 
+               pid, comm, $filename);
+    }
+}
+
+interval:s:5 {
+    printf("💓 Heartbeat - System monitoring active\\n");
+}

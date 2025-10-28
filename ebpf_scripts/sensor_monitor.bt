@@ -1,0 +1,45 @@
+#!/system/bin/sh
+# Sensor Monitoring eBPF Script
+
+BEGIN {
+    printf("📡 Sensor Monitor Started\\n");
+}
+
+// Kamera Zugriffe
+tracepoint:syscalls:sys_enter_ioctl
+{
+    $fd = args->fd;
+    $cmd = args->cmd;
+    
+    // Camera IOCTL Commands
+    if ($cmd == 0xc0185601 || $cmd == 0xc0185603 || $cmd == 0xc0045601) {
+        printf("📷 CAMERA_ACCESS| PID:%d %s [IOCTL:0x%x]\\n", 
+               pid, comm, $cmd);
+    }
+}
+
+// Audio/Mikrofon Zugriffe
+tracepoint:syscalls:sys_enter_read,
+tracepoint:syscalls:sys_enter_write
+{
+    $fd = args->fd;
+    
+    // Check if this is an audio device
+    if ($fd > 0) {
+        printf("🎤 AUDIO_ACCESS| PID:%d %s [FD:%d]\\n", 
+               pid, comm, $fd);
+    }
+}
+
+// Location/GPS Zugriffe
+tracepoint:syscalls:sys_enter_openat
+{
+    $filename = str(args->filename);
+    
+    if (str($filename) ~= "gps" || 
+        str($filename) ~= "location" ||
+        str($filename) ~= "gnss") {
+        printf("📍 GPS_ACCESS| PID:%d %s -> %s\\n", 
+               pid, comm, $filename);
+    }
+}

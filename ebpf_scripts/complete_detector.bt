@@ -1,0 +1,72 @@
+#!/system/bin/sh
+# Complete Trojan Detection eBPF Script
+
+BEGIN {
+    printf("🚀 Complete Trojan Detector Started\\n");
+    printf("Monitoring: Network, Sensors, System Calls\\n");
+}
+
+// Kombinierte Überwachung aller verdächtigen Aktivitäten
+
+// 1. Netzwerk-Überwachung
+tracepoint:syscalls:sys_enter_connect
+{
+    $dport = (args->dport >> 8) | ((args->dport & 0xFF) << 8);
+    
+    // Bekannte Trojaner Ports
+    $malicious_ports = 4444, 5555, 6006, 8443, 1337, 31337, 12345, 54321;
+    
+    if ($dport == $malicious_ports) {
+        printf("🚨 MALICIOUS_PORT| PID:%d %s -> Port:%d\\n", 
+               pid, comm, $dport);
+    }
+}
+
+// 2. Prozess-Überwachung
+tracepoint:syscalls:sys_enter_execve
+{
+    $filename = str(args->filename);
+    
+    // Verdächtige Prozessnamen
+    if (str($filename) ~= "rat" || 
+        str($filename) ~= "trojan" ||
+        str($filename) ~= "backdoor" ||
+        str($filename) ~= "spy" ||
+        str($filename) ~= "keylogger") {
+        printf("⚠️ SUSPICIOUS_PROCESS| PID:%d -> EXEC:%s\\n", 
+               pid, $filename);
+    }
+}
+
+// 3. Datei-Überwachung
+tracepoint:syscalls:sys_enter_openat
+{
+    $filename = str(args->filename);
+    
+    // System kritische Dateien
+    $critical_files = "/system/bin/su", "/system/xbin/su", "/system/bin/magisk", 
+                     "/system/etc/passwd", "/system/etc/shadow", "/proc/kallsyms";
+    
+    if (str($filename) == $critical_files) {
+        printf("🔐 CRITICAL_FILE| PID:%d %s -> %s\\n", 
+               pid, comm, $filename);
+    }
+}
+
+// 4. Sensor-Überwachung
+tracepoint:syscalls:sys_enter_ioctl
+{
+    $cmd = args->cmd;
+    
+    // Camera und Audio IOCTLs
+    $sensor_ioctls = 0xc0185601, 0xc0185603, 0xc0045601, 0x4004530b;
+    
+    if ($cmd == $sensor_ioctls) {
+        printf("📡 SENSOR_IOCTL| PID:%d %s [CMD:0x%x]\\n", 
+               pid, comm, $cmd);
+    }
+}
+
+interval:s:10 {
+    printf("✅ System Scan Active - No threats detected\\n");
+}

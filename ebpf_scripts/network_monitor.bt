@@ -1,0 +1,29 @@
+#!/system/bin/sh
+# Network Monitoring eBPF Script
+
+BEGIN {
+    printf("🌐 Network Monitor Started\\n");
+}
+
+kprobe:ip_local_out
+{
+    $sk = (struct sock *)arg0;
+    $daddr = $sk->__sk_common.skc_daddr;
+    $dport = $sk->__sk_common.skc_dport;
+    $dport = ($dport >> 8) | (($dport & 0xFF) << 8);
+    
+    printf("NETWORK| PID:%d %s -> %d.%d.%d.%d:%d\\n", 
+           pid, comm, 
+           ($daddr >> 0) & 0xFF,
+           ($daddr >> 8) & 0xFF,
+           ($daddr >> 16) & 0xFF,
+           ($daddr >> 24) & 0xFF,
+           $dport);
+}
+
+tracepoint:syscalls:sys_enter_sendto,
+tracepoint:syscalls:sys_enter_sendmsg
+{
+    printf("DATA_SEND| PID:%d %s [Size:%d]\\n", 
+           pid, comm, args->len);
+}

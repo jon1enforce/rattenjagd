@@ -1,0 +1,11 @@
+BEGIN { printf("🔍 Process Monitor Started\\n"); }
+tracepoint:syscalls:sys_enter_execve {
+  $filename = str(args->filename);
+  
+  // Suspicious locations
+  if (strncmp($filename, "/tmp/", 5) == 0 ||
+      strncmp($filename, "/dev/shm/", 9) == 0 ||
+      strstr($filename, ".hidden") != 0) {
+    printf("🚨 SUSPICIOUS_EXEC: %s -> %s\\n", comm, $filename);
+  }
+}
