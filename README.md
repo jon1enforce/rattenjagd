@@ -7,3 +7,17 @@ Skriptsammlung für die Rattenjagd.
 3. pegasus ip address detector... you never know what hit you
 # BETA
 eBPF code loader and executor for android smartphones. Can you see pegasus ;-)
+
+Für:  
+
+________________________________________________________________________________
+    Menschenrechtsorganisationen (Amnesty International, etc.)
+
+    Investigativ-Journalisten
+
+    Sicherheitsexperten
+
+    Regierungsstellen
+
+    Technisch versierte Aktivisten
+________________________________________________________________________________
